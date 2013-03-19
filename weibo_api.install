@@ -1,0 +1,65 @@
+<?php
+/**
+ * @file weibo api installation
+ */
+
+/**
+ * Implementation of hook_schema().
+ */
+function weibo_api_schema() {
+  $schema['weibo_api_user'] = array(
+    'description' => 'weibo user table',
+    'fields' => array(
+      'wuid' => array(
+        'description' => 'The primary identifier for a weibo user.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'uid' => array(
+        'description' => 'The {users}.uid that bind this weibo user',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'sina_uid' => array(
+        'description' => 'sina user id',
+        'type' => 'int',
+        'length' => 32,
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'sina_name' => array(
+        'description' => 'sina user name',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'token' => array(
+        'description' => 'oauth token',
+        'type' => 'text',
+        'not null' => TRUE,
+        'serialize' => TRUE,
+        'size' => 'medium'
+      ),
+    ),
+    'unique keys' => array(
+      'sina_name' => array('sina_name'),
+    ),
+    'foreign keys' => array(
+      'bind_user' => array(
+        'table' => 'users',
+        'columns' => array('uid' => 'uid'),
+      ),
+    ),
+    'primary key' => array('wuid'),
+    'indexes' => array(
+      'uid' => array('uid'),
+      'sina_uid' => array('sina_uid'),
+    ),
+  );
+  return $schema;
+}

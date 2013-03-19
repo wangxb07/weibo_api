@@ -1,0 +1,13 @@
+#+TITLE: Sina weibo api roadmap
+#+author: wangxianbin
+#+email: wangxb07@gmail.com
+
+* DONE oauth2.0验证的初步实现
+  后期也可能用第三方的oauth替换。具体看sina weibo的oauth是否和标准的完
+  全一致，以及表结构的问题。
+
+* DONE 用户的登录与绑定
+  可以参考 sina_open模块，以及其他现成模块。
+
+* TODO 接口调用公共方法实现
+* TODO 绑定之后基本数据的展示，用户对于绑定的设置。

@@ -1,0 +1,282 @@
+<?php
+
+/**
+ * @file sina weibo api module, implements hooks and common functions
+ */
+define('WEIBO_OAUTH2_CALLBACK_POINT_PREFIX', 'weibo_oauth2');
+/**
+ * implements hook_menu
+ */
+function weibo_api_menu() {
+  // Minor code reduction technique.
+  $base = array(
+    'access callback' => 'user_access',
+    'access arguments' => array('administer weibo_api'),
+  );
+
+  // admin api settings list
+  $items['admin/config/weibo_api'] = array(
+    'title' => 'Weibo api',
+    'page callback' => 'system_admin_menu_block_page',
+    'file' => 'system.admin.inc',
+    'file path' => drupal_get_path('module', 'system'),
+  ) + $base;
+
+  // admin api settings form
+  $items['admin/config/weibo_api/settings'] = array(
+    'title' => 'Weibo api settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('weibo_api_settings_form'),
+    'file' => 'weibo_api.admin.inc',
+  ) + $base;
+
+  // callback point
+  $items[WEIBO_OAUTH2_CALLBACK_POINT_PREFIX] = array(
+    'title' => 'WEIBO_API_CALLBACK',
+    'page callback' => 'weibo_api_oauth2_page',
+    'page arguments' => array(FALSE),
+    'access callback' => TRUE,
+    'file' => 'weibo_api.pages.inc',
+  );
+
+  $point = weibo_api_get_callback_uri(TRUE);
+  $items[$point] = array(
+    'title' => 'Weibo oauth2 callback page',
+    'page callback' => 'weibo_api_oauth2_page',
+    'page arguments' => array(TRUE),
+    'type' => MENU_CALLBACK,
+    'access callback' => TRUE,
+    'file' => 'weibo_api.pages.inc',
+  );
+
+  // user center bind settings
+  $consumer_key = variable_get('weibo_api_oauth_consumer_key', '');
+  $consumer_secret = variable_get('weibo_api_oauth_consumer_secret', '');
+  if (!empty($consumer_key) && !empty($consumer_secret)) {
+    $items['user/%user/weibo_api_bind'] = array(
+      'title' => 'Weibo settings',
+      'type' => MENU_LOCAL_TASK,
+      'page callback' => 'weibo_api_bind_page',
+      'page arguments' => array(1),
+      'access callback' => 'user_edit_access',
+      'access arguments' => array(1),
+      'file' => 'weibo_api.pages.inc',
+    );
+  }
+
+  return $items;
+}
+
+/**
+ * @Implement of hook_permission()
+ */
+function sina_open_permission() {
+  return array(
+    'administer weibo_api' => array(
+      'title' => 'weibo api settings',
+    ),
+  );
+}
+
+/**
+ * Alter user login form
+ */
+function weibo_api_form_user_login_alter(&$form, &$form_state) {
+  if (!variable_get('weibo_api_is_enable', TRUE)
+      || !variable_get('weibo_login_is_enable', TRUE)) {
+    return FALSE;
+  }
+
+  $consumer_key = variable_get('weibo_api_oauth_consumer_key', '');
+  $consumer_secret = variable_get('weibo_api_oauth_consumer_secret', '');
+
+  if (empty($consumer_key) || empty($consumer_secret)) {
+    $form['actions']['weibo_api_login'] = array(
+      '#markup' => t('weibo api config is empty.'),
+    );
+  }
+  else {
+    $client = weibo_api_build_oauth_client();
+    $login_uri = $client->getAuthorizeURL(weibo_api_get_callback_uri());
+    $form['actions']['weibo_api_login'] = array(
+      '#theme' => 'link',
+      '#text' => '<img src="' . drupal_get_path('module', 'weibo_api') . "/images/weibo_login.png" . '"/>',
+      '#path' => $login_uri,
+      '#options' => array(
+        'attributes' => array(
+        ),
+        'html' => TRUE,
+      ),
+    );
+  }
+}
+
+/**
+ * build client object.
+ * @param array $token
+ * @param boolean $reset
+ * @return SaeTOAuthV2
+ */
+function weibo_api_build_client($token) {
+  $client = &drupal_static(__FUNCTION__);
+  if (!isset($client) || $reset) {
+    if ($oauth = weibo_api_build_oauth_client($token)) {
+      $client = new weibo_api_client($oauth);
+    }
+  }
+  return $client;
+}
+
+/**
+ * build oauth client object.
+ * @param array $token
+ * @param boolean $reset
+ * @return SaeTOAuthV2
+ */
+function weibo_api_build_oauth_client($token = NULL, $reset = FALSE) {
+  $client = &drupal_static(__FUNCTION__);
+  if (!isset($client) || $reset) {
+    $consumer_key = variable_get('weibo_api_oauth_consumer_key', '');
+    $consumer_secret = variable_get('weibo_api_oauth_consumer_secret', '');
+    $client = new weibo_api_oauth2($consumer_key, $consumer_secret, $token);
+  }
+  return $client;
+}
+
+/**
+ * get callback uri
+ */
+function weibo_api_get_callback_uri($point_only=FALSE) {
+  global $base_root;
+  $callback_point = variable_get('weibo_api_callback_point', 'callback');
+  if (!$point_only) {
+    return $base_root . '/' . WEIBO_OAUTH2_CALLBACK_POINT_PREFIX . '/' . $callback_point;
+  }
+  else {
+    return WEIBO_OAUTH2_CALLBACK_POINT_PREFIX . '/' . $callback_point;
+  }
+}
+
+
+/**
+ * get user info from API
+ */
+function weibo_api_get_sina_user($token) {
+  if (isset($token['access_token']) && $token['uid']) {
+    $client = weibo_api_build_client($token['access_token']);
+    $user = $client->show_user_by_id($token['uid']);
+    if (!isset($user['name'])) {
+      return FALSE;
+    }
+    return $user;
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * bind user
+ * @param array $token
+ */
+function weibo_api_bind_user($token) {
+  global $user;
+  if ($sina_user = weibo_api_get_sina_user($token)) {
+    $data = array(
+      'uid' => $user->uid,
+      'sina_uid' => $token['uid'],
+      'sina_name' => $sina_user['name'],
+      'token' => $token['access_token'],
+    );
+    db_insert('weibo_api_user')->fields($data)->execute();
+  }
+}
+
+/**
+ * sign up new user
+ */
+function weibo_api_signup_user($token) {
+  global $user;
+  if ($sina_user = weibo_api_get_sina_user($token)) {
+    $name = 'sina_' . $sina_user['name'];
+    $is_exists = (bool)db_query("SELECT 1 FROM {users} WHERE  LOWER(name) = LOWER(:name)",
+                          array(':name' => $name))->fetchField();
+    if ($is_exists) {
+      $sql = "SELECT SUBSTRING_INDEX(name,'_',-1)
+        FROM {users}
+        WHERE name
+        REGEXP :search
+        ORDER BY CAST(SUBSTRING_INDEX(name,'_',-1) AS UNSIGNED) DESC";
+
+      $name_idx = db_query_range($sql, 0, 1, array(':search' => '^' . $name . '_[0-9]+$'))->fetchField();
+      $name .= '_' . ($name_idx + 1);
+    }
+    $edit = array(
+      'name' => $name,
+      'pass' => user_password(),
+      'init' => '',
+      'status' => 1,
+      'access' => REQUEST_TIME,
+      'roles' => array(2 => 'authenticated user'),
+    );
+    $account = user_save(NULL, $edit);
+
+    $data = array(
+      'uid' => $account->uid,
+      'sina_uid' => $token['uid'],
+      'sina_name' => $sina_user['name'],
+      'token' => $token['access_token'],
+    );
+    db_merge('weibo_api_user')->key(array('sina_uid' => $sina_user['id']))
+      ->fields($data)->execute();
+
+    return $account;
+  }
+}
+
+/**
+ * weibo api token store setter
+ * @param array $token
+ * @param boolean $reset if token exists, whether need to reset
+ * @return void
+ */
+function weibo_api_token_set($token, $reset = FALSE) {
+  if (!($token = weibo_api_token_get()) || $reset) {
+    $_SESSION['weibo_api_token'] = $token;
+  }
+}
+
+/**
+ * weibo api token store getter
+ * @return array
+ */
+function weibo_api_token_get() {
+  $token = &drupal_static(__FUNCTION__);
+  if (!isset($token)) {
+    $token = isset($_SESSION['weibo_api_token'])?$_SESSION['weibo_api_token']:FALSE;
+  }
+  return $token;
+}
+
+/**
+ * implements hook_user_delete()
+ */
+function weibo_api_user_delete($account) {
+  db_delete("weibo_api_user")->condition('uid', $account->uid)->execute();
+}
+
+/**
+ * Check if the user is bind to weibo
+ * @param mixed $user
+ */
+function weibo_api_user_is_bind($user) {
+  $uid = 0;
+  if (is_numeric($user)) {
+    $uid = $user;
+  }
+  else {
+    $uid = $user->uid;
+  }
+  return (bool) db_select("weibo_api_user", 'wu')->fields('wu', array('wuid'))
+    ->condition('uid', $uid)->execute()->fetchField(0);
+}

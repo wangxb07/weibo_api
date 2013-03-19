@@ -1,0 +1,10 @@
+name = Sina Weibo API
+description = SDK for sina weibo
+package = Development
+core = 7.x
+version = 7.x-1.0-dev
+
+dependencies[] = ctools
+
+
+files[] = includes/saetv2.inc
